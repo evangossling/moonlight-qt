@@ -840,7 +840,7 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
     
 
     if (stats.framesWithHostProcessingLatency > 0) {
-        // Append network statistics to log file
+        // Append host processing latency to log file
         // latency_min,latency_max,latency_avg
         static const std::string logFilePath = "../../../logs/host_processing_latency.log";
         std::ofstream logFile(logFilePath, std::ios::app);
