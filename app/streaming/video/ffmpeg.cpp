@@ -1,6 +1,7 @@
 #include <Limelight.h>
 #include "ffmpeg.h"
 #include "streaming/session.h"
+#include <fstream>
 
 #include <h264_stream.h>
 
@@ -788,9 +789,10 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
     if (stats.receivedFps > 0) {
         if (m_VideoDecoderCtx != nullptr) {
             const RTP_VIDEO_STATS* rtpVideoStats = LiGetRTPVideoStats();
-            float fecOverhead = (float)rtpVideoStats->packetCountFec * 1.0 / (rtpVideoStats->packetCountVideo + rtpVideoStats->packetCountFec);
-            bool useKb = stats.videoMegabitsPerSec < 1 ? true : false;
-
+            float fecOverhead = (float)rtpVideoStats->packetCountFec * 1.0 /
+                                (rtpVideoStats->packetCountVideo + rtpVideoStats->packetCountFec);
+            bool useKb = stats.videoMegabitsPerSec < 1;
+    
             ret = snprintf(&output[offset],
                            length - offset,
                            "Video stream: %dx%d %.2f FPS (Codec: %s)\n"
@@ -806,10 +808,23 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
                 SDL_assert(false);
                 return;
             }
-
+    
             offset += ret;
+    
+            // Append video statistics to log file
+            std::ofstream logFile("logs/video_stats.log", std::ios::app);
+            if (logFile.is_open()) {
+                logFile << m_VideoDecoderCtx->width << "x" << m_VideoDecoderCtx->height << ","
+                        << stats.totalFps << "," << codecString << ","
+                        << (useKb ? stats.videoMegabitsPerSec * 1000 : stats.videoMegabitsPerSec) << ","
+                        << (useKb ? "kbps" : "Mbps") << ","
+                        << (fecOverhead * 100.0) << "%,"
+                        << stats.receivedFps << "," << stats.decodedFps << "," << stats.renderedFps
+                        << "\n";
+                logFile.close();
+            }
         }
-
+    
         ret = snprintf(&output[offset],
                        length - offset,
                        "FPS incoming/decoding/rendering: %.2f/%.2f/%.2f\n",
@@ -818,9 +833,10 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
             SDL_assert(false);
             return;
         }
-
+    
         offset += ret;
     }
+    
 
     if (stats.framesWithHostProcessingLatency > 0) {
         ret = snprintf(&output[offset],
@@ -867,6 +883,19 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         }
 
         offset += ret;
+
+        // Append network statistics to log file
+        static const std::string logFilePath = "logs/network_stats.log";
+        std::ofstream logFile(logFilePath, std::ios::app);
+        if (logFile.is_open()) {
+            logFile << "Dropped by Network: " << (float)stats.networkDroppedFrames / stats.totalFrames * 100 << "%, "
+                    << "Dropped by Jitter: " << (float)stats.pacerDroppedFrames / stats.decodedFrames * 100 << "%, "
+                    << "Avg Latency: " << rttString << ", "
+                    << "Avg Decoding Time: " << (double)(stats.totalDecodeTimeUs / 1000.0) / stats.decodedFrames << " ms, "
+                    << "Avg Frame Queue Delay: " << (double)(stats.totalPacerTimeUs / 1000.0) / stats.renderedFrames << " ms, "
+                    << "Avg Rendering Time: " << (double)(stats.totalRenderTimeUs / 1000.0) / stats.renderedFrames << " ms\n";
+            logFile.close();
+        }
     }
 }
 
@@ -1886,4 +1915,3 @@ void FFmpegVideoDecoder::renderFrameOnMainThread()
 {
     m_Pacer->renderOnMainThread();
 }
-
