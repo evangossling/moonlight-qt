@@ -1,6 +1,7 @@
 #include <Limelight.h>
 #include "ffmpeg.h"
 #include "streaming/session.h"
+#include <fstream>
 
 #include <h264_stream.h>
 
@@ -845,6 +846,19 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         double fecOverhead = (double)rtpVideoStats->packetCountFec * 1.0 / (rtpVideoStats->packetCountVideo + rtpVideoStats->packetCountFec);
         double fecMbps = avgVideoMbps * fecOverhead;
 
+            // Append video statistics to log file
+            // bitrate,bitrate_rate,fec,fps_incoming,fps_decoding,fps_rendering
+            std::ofstream logFile("../../../logs/video_stats.log", std::ios::app);
+            if (logFile.is_open()) {
+                logFile << avgVideoMbps + fecMbps << ","
+                        << avgVideoMbps << ","
+                        << fecMbps << ","
+                        << peakVideoMbps + (peakVideoMbps * fecOverhead) << ","
+                        << stats.receivedFps << "," << stats.decodedFps << "," << stats.renderedFps
+                        << "\n";
+                logFile.close();
+            }
+
         ret = snprintf(&output[offset],
                        length - offset,
                        "Bitrate: %.1f Mbps (%.1f/%.1f video/FEC) Peak (30s): %.1f\n"
@@ -867,6 +881,18 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
     }
 
     if (stats.framesWithHostProcessingLatency > 0) {
+        // Append host processing latency to log file
+        // latency_min,latency_max,latency_avg
+        static const std::string logFilePath = "../../../logs/host_processing_latency.log";
+        std::ofstream logFile(logFilePath, std::ios::app);
+        if (logFile.is_open()) {
+            logFile << (float)stats.minHostProcessingLatency / 10 << ","
+                    << (float)stats.maxHostProcessingLatency / 10 << ","
+                    << (float)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency << "\n";
+            logFile.close();
+        }
+
+
         ret = snprintf(&output[offset],
                        length - offset,
                        "Host processing latency min/max/average: %.1f/%.1f/%.1f ms\n",
@@ -889,6 +915,20 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         }
         else {
             snprintf(rttString, sizeof(rttString), "N/A");
+        }
+
+        // Append network statistics to log file
+        // frames_dropped_network_connection,frames_dropped_jitter,average_network_latency_and_variance,average_decoding_time,average_frame_queue_delay,average_rendering_time
+        static const std::string logFilePath = "../../../logs/network_stats.log";
+        std::ofstream logFile(logFilePath, std::ios::app);
+        if (logFile.is_open()) {
+            logFile << (float)stats.networkDroppedFrames / stats.totalFrames * 100 << ","
+                    << stats.pacerDroppedFrames / stats.decodedFrames * 100 << ","
+                    << rttString << ","
+                    << (float)stats.totalDecodeTime / stats.decodedFrames << ","
+                    << (float)stats.totalPacerTime / stats.renderedFrames << ","
+                    << (float)stats.totalRenderTime / stats.renderedFrames << "\n";
+            logFile.close();
         }
 
         ret = snprintf(&output[offset],
@@ -1755,7 +1795,7 @@ void FFmpegVideoDecoder::decoderThreadProc()
                         // Count time in avcodec_send_packet() and avcodec_receive_frame()
                         // as time spent decoding. Also count time spent in the decode unit
                         // queue because that's directly caused by decoder latency.
-                        m_ActiveWndVideoStats.totalDecodeTime += LiGetMillis() - du.enqueueTimeMs;
+                        m_ActiveWndVideoStats.totalDecodeTime += LiGetMillis() - du.enqueueTimeUs;
 
                         // Store the presentation time
                         frame->pts = du.presentationTimeMs;
@@ -1905,7 +1945,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
         m_Pkt->flags = 0;
     }
 
-    m_ActiveWndVideoStats.totalReassemblyTime += du->enqueueTimeMs - du->receiveTimeMs;
+    m_ActiveWndVideoStats.totalReassemblyTime += du->enqueueTimeUs - du->receiveTimeUs;
 
     err = avcodec_send_packet(m_VideoDecoderCtx, m_Pkt);
     if (err < 0) {
