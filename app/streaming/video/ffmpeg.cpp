@@ -13,6 +13,8 @@ extern "C" {
 #include "ffmpeg-renderers/sdlvid.h"
 #include "ffmpeg-renderers/genhwaccel.h"
 
+#include <iomanip>
+
 #ifdef Q_OS_WIN32
 #include "ffmpeg-renderers/dxva2.h"
 #include "ffmpeg-renderers/d3d11va.h"
@@ -751,6 +753,11 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
     const char* codecString;
     int ret;
 
+    // Time for logs
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    double epochSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() / 1000.0;
+
     // Start with an empty string
     output[offset] = 0;
 
@@ -848,14 +855,16 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
 
             // Append video statistics to log file
             // bitrate,bitrate_rate,fec,fps_incoming,fps_decoding,fps_rendering
-            std::ofstream logFile("../../../logs/video_stats.log", std::ios::app);
+            std::ofstream logFile("/home/evan/moonlight-qt/logs/video_stats.log", std::ios::app);
             if (logFile.is_open()) {
-                logFile << avgVideoMbps + fecMbps << ","
+                logFile << std::fixed << std::setprecision(3)
+                        << stats.totalFps << ","
+                        << avgVideoMbps + fecMbps << ","
                         << avgVideoMbps << ","
                         << fecMbps << ","
                         << peakVideoMbps + (peakVideoMbps * fecOverhead) << ","
-                        << stats.receivedFps << "," << stats.decodedFps << "," << stats.renderedFps
-                        << "\n";
+                        << stats.receivedFps << "," << stats.decodedFps << "," << stats.renderedFps << ","
+                        << epochSeconds << "\n";
                 logFile.close();
             }
 
@@ -883,12 +892,14 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
     if (stats.framesWithHostProcessingLatency > 0) {
         // Append host processing latency to log file
         // latency_min,latency_max,latency_avg
-        static const std::string logFilePath = "../../../logs/host_processing_latency.log";
+        static const std::string logFilePath = "/home/evan/moonlight-qt/logs/host_processing_latency.log";
         std::ofstream logFile(logFilePath, std::ios::app);
         if (logFile.is_open()) {
-            logFile << (float)stats.minHostProcessingLatency / 10 << ","
+            logFile << std::fixed << std::setprecision(3)
+                    << (float)stats.minHostProcessingLatency / 10 << ","
                     << (float)stats.maxHostProcessingLatency / 10 << ","
-                    << (float)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency << "\n";
+                    << (float)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency << ","
+                    << epochSeconds << "\n";
             logFile.close();
         }
 
@@ -919,15 +930,17 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
 
         // Append network statistics to log file
         // frames_dropped_network_connection,frames_dropped_jitter,average_network_latency_and_variance,average_decoding_time,average_frame_queue_delay,average_rendering_time
-        static const std::string logFilePath = "../../../logs/network_stats.log";
+        static const std::string logFilePath = "/home/evan/moonlight-qt/logs/network_stats.log";
         std::ofstream logFile(logFilePath, std::ios::app);
         if (logFile.is_open()) {
-            logFile << (float)stats.networkDroppedFrames / stats.totalFrames * 100 << ","
+            logFile << std::fixed << std::setprecision(3)
+                    << (float)stats.networkDroppedFrames / stats.totalFrames * 100 << ","
                     << stats.pacerDroppedFrames / stats.decodedFrames * 100 << ","
                     << rttString << ","
                     << (float)stats.totalDecodeTime / stats.decodedFrames << ","
                     << (float)stats.totalPacerTime / stats.renderedFrames << ","
-                    << (float)stats.totalRenderTime / stats.renderedFrames << "\n";
+                    << (float)stats.totalRenderTime / stats.renderedFrames << ","
+                    << epochSeconds << "\n"; 
             logFile.close();
         }
 
